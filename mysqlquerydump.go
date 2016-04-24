@@ -1,18 +1,18 @@
 package main
 
 import (
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
-	"os"
-	"gopkg.in/ini.v1"
-	"strconv"
-	"errors"
-	"database/sql"
-	_ "github.com/go-sql-driver/mysql"
-	_ "reflect"
-	"log"
 	"github.com/go-sql-driver/mysql"
-	"encoding/json"
+	_ "github.com/go-sql-driver/mysql"
+	"gopkg.in/ini.v1"
+	"log"
+	"os"
+	_ "reflect"
+	"strconv"
 )
 
 var (
@@ -30,12 +30,12 @@ type MysqlOptions interface {
 }
 
 type mysqlOptions struct {
-	host string
-	user string
+	host     string
+	user     string
 	password string
 	database string
-	port uint16
-	charset string
+	port     uint16
+	charset  string
 }
 
 func (options *mysqlOptions) Host() string {
@@ -153,16 +153,16 @@ func main() {
 	}
 
 	options.Extend(&mysqlOptions{
-		host: *host,
-		user: *user,
+		host:     *host,
+		user:     *user,
 		database: *database,
-		charset: *charset,
-		port: uint16(*port64),
+		charset:  *charset,
+		port:     uint16(*port64),
 	})
 
 	config := mysql.Config{
-		Addr: options.Host() + ":" + strconv.Itoa(int(options.Port())),
-		User: options.User(),
+		Addr:   options.Host() + ":" + strconv.Itoa(int(options.Port())),
+		User:   options.User(),
 		Passwd: options.Password(),
 		DBName: options.Database(),
 		Params: map[string]string{
@@ -194,7 +194,7 @@ func main() {
 	dest := make([]interface{}, len(columns))
 	mapped := make(map[string]interface{})
 
-	for i, v := range columns{
+	for i, v := range columns {
 		dest[i] = &result[i]
 		mapped[v] = nil
 	}
