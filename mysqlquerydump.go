@@ -13,10 +13,7 @@ import (
 	"os"
 	_ "reflect"
 	"strconv"
-)
-
-var (
-	err error
+	"encoding/csv"
 )
 
 type MysqlOptions interface {
@@ -120,6 +117,44 @@ func checkErrors(err error) {
 	}
 }
 
+func escapeString(bytes *[]byte) *[]byte {
+	newBytes := make([]byte, len(*bytes) * 2)
+	i := 0
+	for _, char := range *bytes {
+		escape := true
+		switch char {
+		case 0:
+			char = '0'
+		case '\n':
+			char = 'n'
+		case '\r':
+			char = 'r'
+		case '\\':
+			break
+		case '\'':
+			break
+		case '"':
+			break
+		case '\032':
+			char = 'Z'
+		default:
+			escape = false
+		}
+
+		if escape == true {
+			newBytes[i] = '\\'
+			i++
+		}
+
+		newBytes[i] = char
+		i++
+	}
+
+	newBytes = newBytes[0:i]
+
+	return &newBytes
+}
+
 func main() {
 	host := flag.String("h", "localhost", "Connect to host.")
 	user := flag.String("u", "", "User for login if not current user.")
@@ -170,8 +205,6 @@ func main() {
 		},
 	}
 
-	fmt.Println(config.FormatDSN())
-
 	db, err := sql.Open("mysql", config.FormatDSN())
 	checkErrors(err)
 
@@ -192,29 +225,96 @@ func main() {
 
 	result := make([]interface{}, len(columns))
 	dest := make([]interface{}, len(columns))
-	mapped := make(map[string]interface{})
 
-	for i, v := range columns {
+	for i, _ := range columns {
 		dest[i] = &result[i]
-		mapped[v] = nil
 	}
 
-	for rows.Next() {
-		err = rows.Scan(dest...)
-		checkErrors(err)
+	switch *format {
+	case "json":
+		mapped := make(map[string]interface{})
+		for rows.Next() {
+			err = rows.Scan(dest...)
+			checkErrors(err)
 
-		for i, value := range result {
-			switch value.(type) {
-			case []byte:
-				mapped[columns[i]] = string(value.([]byte))
-			default:
-				mapped[columns[i]] = value
+			for i, value := range result {
+				switch value.(type) {
+				case []byte:
+					mapped[columns[i]] = string(value.([]byte))
+				default:
+					mapped[columns[i]] = value
+				}
 			}
-		}
-		json, err := json.Marshal(mapped)
-		checkErrors(err)
 
-		fmt.Println(string(json))
+			json, err := json.Marshal(mapped)
+			checkErrors(err)
+
+			fmt.Println(string(json))
+		}
+	case "csv":
+		csvWriter := csv.NewWriter(os.Stdout)
+		for i := 0; rows.Next(); i++ {
+			err = rows.Scan(dest...)
+			checkErrors(err)
+
+			record := make([]string, len(columns))
+
+			for i, value := range result {
+				switch value.(type) {
+				case []byte:
+					record[i] = string(value.([]byte))
+				case nil:
+					record[i] = ""
+				default:
+					record[i] = fmt.Sprintf("%v", value)
+				}
+			}
+
+			csvWriter.Write(record)
+		}
+		csvWriter.Flush()
+
+		if err := csvWriter.Error(); err != nil {
+			checkErrors(err)
+		}
+	case "sql":
+		if *alias == "" {
+			fmt.Println("Alias must be specified for sql format")
+			os.Exit(1)
+		}
+
+		fields := "<fields>"
+		sql := "INSERT INTO " + *alias + " (" + fields + ") VALUES\n"
+		for i := 0; rows.Next(); i++ {
+			err = rows.Scan(dest...)
+			checkErrors(err)
+
+			if (i > 0) {
+				sql += ",\n"
+			}
+
+			sql += "("
+			for i, value := range result {
+				switch value.(type) {
+				case []byte:
+					valueBytes := value.([]byte)
+					sql += "'" + string(*escapeString(&valueBytes)) + "'"
+				case nil:
+					sql += "NULL"
+				default:
+					sql += fmt.Sprintf("%v", value)
+				}
+
+				if i < len(columns) - 1 {
+					sql += ", "
+				}
+			}
+			sql += ")"
+		}
+
+		sql += ";\n"
+
+		fmt.Println(sql)
 	}
 
 	_ = host
