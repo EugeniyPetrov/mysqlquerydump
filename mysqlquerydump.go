@@ -14,6 +14,8 @@ import (
 	_ "reflect"
 	"strconv"
 	"encoding/csv"
+	"math"
+	"strings"
 )
 
 type MysqlOptions interface {
@@ -159,14 +161,13 @@ func main() {
 	host := flag.String("h", "localhost", "Connect to host.")
 	user := flag.String("u", "", "User for login if not current user.")
 	database := flag.String("D", "", "Database to use.")
-	charset := flag.String("C", "utf8", "Set the default character set.")
 	port64 := flag.Uint64("P", 3306, "The TCP/IP port number to use for the connection.")
 	query := flag.String("e", "", "The query to be processed. If not specified it will be given from standart input. It is recommended to use the command with outer sql-file.")
 	format := flag.String("f", "csv", "Query output format. Possible values: csv, sql, json.")
 	alias := flag.String("a", "", "MySQL table alias the result of a query will by written in. It is so pointless with the -f csv.")
 	insertIgnore := flag.Bool("i", false, "Produce INSERT IGNORE output for sql dump.")
 	onDuplicateKeyUpdate := flag.Bool("U", false, "Produce statement for update duplicate rows.")
-	batchSize := flag.Int("s", 1, "Batch size in mb")
+	batchSize := flag.Int("s", 1024, "Batch size in kb")
 	configFile := flag.String("c", "", "configuration ini file")
 	flag.Parse()
 
@@ -187,11 +188,15 @@ func main() {
 		options.Extend(extraOptions)
 	}
 
+	// Only utf8 output may be produced at the moment, because escapeString only work well with utf8 and single-byte
+	// encodings
+	charset := "utf8"
+
 	options.Extend(&mysqlOptions{
 		host:     *host,
 		user:     *user,
 		database: *database,
-		charset:  *charset,
+		charset:  charset,
 		port:     uint16(*port64),
 	})
 
@@ -283,13 +288,37 @@ func main() {
 			os.Exit(1)
 		}
 
-		fields := "<fields>"
-		sql := "INSERT INTO " + *alias + " (" + fields + ") VALUES\n"
+		sqlBatchSize := int(math.Floor(1024 * float64(*batchSize)))
+
+		ignoreStatement := ""
+		if *insertIgnore == true {
+			ignoreStatement = "IGNORE "
+		}
+
+		fields := "`" + strings.Join(columns, "`, `") + "`"
+		insertHeader := "INSERT " + ignoreStatement + "INTO `" + *alias + "` (" + fields + ") VALUES\n"
+
+		onDuplicateStatement := "\nON DUPLICATE KEY UPDATE\n"
+		for i, value := range columns {
+			onDuplicateStatement += "`" + value + "` = VALUES(`" + value + "`)"
+			if i < len(columns) - 1 {
+				onDuplicateStatement += ",\n"
+			}
+		}
+
+		fmt.Println("SET NAMES " + options.Charset() + ";\n")
+
+		sql := ""
+		printComa := false
 		for i := 0; rows.Next(); i++ {
 			err = rows.Scan(dest...)
 			checkErrors(err)
 
-			if (i > 0) {
+			if sql == "" {
+				sql = insertHeader
+			}
+
+			if printComa == true {
 				sql += ",\n"
 			}
 
@@ -310,11 +339,28 @@ func main() {
 				}
 			}
 			sql += ")"
+
+			if len(sql) >= sqlBatchSize {
+				if *onDuplicateKeyUpdate {
+					sql += onDuplicateStatement
+				}
+				sql += ";"
+				fmt.Println(sql)
+
+				sql = ""
+				printComa = false
+			} else {
+				printComa = true
+			}
 		}
 
-		sql += ";\n"
-
-		fmt.Println(sql)
+		if sql != "" {
+			if *onDuplicateKeyUpdate {
+				sql += onDuplicateStatement
+			}
+			sql += ";"
+			fmt.Println(sql)
+		}
 	}
 
 	_ = host
