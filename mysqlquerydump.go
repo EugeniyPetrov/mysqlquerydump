@@ -16,6 +16,7 @@ import (
 	_ "reflect"
 	"strconv"
 	"strings"
+	"bytes"
 )
 
 type MysqlOptions interface {
@@ -171,6 +172,13 @@ func main() {
 	configFile := flag.String("c", "", "configuration ini file")
 	flag.Parse()
 
+	if *host == "localhost" {
+		*host = ""
+	}
+	if *port64 == 3306 {
+		*port64 = 0
+	}
+
 	options := mysqlOptions{host: "localhost", port: 3306}
 
 	myCnf := os.Getenv("HOME") + "/.my.cnf"
@@ -201,6 +209,7 @@ func main() {
 	})
 
 	config := mysql.Config{
+		Net:	"tcp",
 		Addr:   options.Host() + ":" + strconv.Itoa(int(options.Port())),
 		User:   options.User(),
 		Passwd: options.Password(),
@@ -308,58 +317,59 @@ func main() {
 
 		fmt.Println("SET NAMES " + options.Charset() + ";\n")
 
-		sql := ""
+		var sqlBuffer bytes.Buffer
+
 		printComa := false
 		for i := 0; rows.Next(); i++ {
 			err = rows.Scan(dest...)
 			checkErrors(err)
 
-			if sql == "" {
-				sql = insertHeader
+			if sqlBuffer.Len() == 0 {
+				sqlBuffer.WriteString(insertHeader)
 			}
 
 			if printComa == true {
-				sql += ",\n"
+				sqlBuffer.WriteString(",\n")
 			}
 
-			sql += "("
+			sqlBuffer.WriteString("(")
 			for i, value := range result {
 				switch value.(type) {
 				case []byte:
 					valueBytes := value.([]byte)
-					sql += "'" + string(*escapeString(&valueBytes)) + "'"
+					sqlBuffer.WriteString("'" + string(*escapeString(&valueBytes)) + "'")
 				case nil:
-					sql += "NULL"
+					sqlBuffer.WriteString("NULL")
 				default:
-					sql += fmt.Sprintf("%v", value)
+					sqlBuffer.WriteString(fmt.Sprintf("%v", value))
 				}
 
 				if i < len(columns)-1 {
-					sql += ", "
+					sqlBuffer.WriteString(", ")
 				}
 			}
-			sql += ")"
+			sqlBuffer.WriteString(")")
 
-			if len(sql) >= sqlBatchSize {
+			if sqlBuffer.Len() >= sqlBatchSize {
 				if *onDuplicateKeyUpdate {
-					sql += onDuplicateStatement
+					sqlBuffer.WriteString(onDuplicateStatement)
 				}
-				sql += ";"
-				fmt.Println(sql)
+				sqlBuffer.WriteString(";")
+				fmt.Println(sqlBuffer.String())
 
-				sql = ""
+				sqlBuffer.Truncate(0)
 				printComa = false
 			} else {
 				printComa = true
 			}
 		}
 
-		if sql != "" {
+		if sqlBuffer.Len() > 0 {
 			if *onDuplicateKeyUpdate {
-				sql += onDuplicateStatement
+				sqlBuffer.WriteString(onDuplicateStatement)
 			}
-			sql += ";"
-			fmt.Println(sql)
+			sqlBuffer.WriteString(";")
+			fmt.Println(sqlBuffer.String())
 		}
 	}
 
