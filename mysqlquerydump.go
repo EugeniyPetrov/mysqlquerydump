@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -10,11 +11,10 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"gopkg.in/ini.v1"
 	"log"
+	"math"
 	"os"
 	_ "reflect"
 	"strconv"
-	"encoding/csv"
-	"math"
 	"strings"
 )
 
@@ -120,7 +120,7 @@ func checkErrors(err error) {
 }
 
 func escapeString(bytes *[]byte) *[]byte {
-	newBytes := make([]byte, len(*bytes) * 2)
+	newBytes := make([]byte, len(*bytes)*2)
 	i := 0
 	for _, char := range *bytes {
 		escape := true
@@ -301,7 +301,7 @@ func main() {
 		onDuplicateStatement := "\nON DUPLICATE KEY UPDATE\n"
 		for i, value := range columns {
 			onDuplicateStatement += "`" + value + "` = VALUES(`" + value + "`)"
-			if i < len(columns) - 1 {
+			if i < len(columns)-1 {
 				onDuplicateStatement += ",\n"
 			}
 		}
@@ -334,7 +334,7 @@ func main() {
 					sql += fmt.Sprintf("%v", value)
 				}
 
-				if i < len(columns) - 1 {
+				if i < len(columns)-1 {
 					sql += ", "
 				}
 			}
