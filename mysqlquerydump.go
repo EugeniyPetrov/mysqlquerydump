@@ -244,6 +244,8 @@ func main() {
 		dest[i] = &result[i]
 	}
 
+	out := os.Stdout
+
 	switch *format {
 	case "json":
 		mapped := make(map[string]interface{})
@@ -263,10 +265,11 @@ func main() {
 			json, err := json.Marshal(mapped)
 			checkErrors(err)
 
-			fmt.Println(string(json))
+			out.WriteString(string(json))
+			out.WriteString("\n")
 		}
 	case "csv":
-		csvWriter := csv.NewWriter(os.Stdout)
+		csvWriter := csv.NewWriter(out)
 		for i := 0; rows.Next(); i++ {
 			err = rows.Scan(dest...)
 			checkErrors(err)
@@ -315,7 +318,7 @@ func main() {
 			}
 		}
 
-		fmt.Println("SET NAMES " + options.Charset() + ";\n")
+		out.WriteString("SET NAMES " + options.Charset() + ";\n\n")
 
 		var sqlBuffer bytes.Buffer
 
@@ -354,8 +357,8 @@ func main() {
 				if *onDuplicateKeyUpdate {
 					sqlBuffer.WriteString(onDuplicateStatement)
 				}
-				sqlBuffer.WriteString(";")
-				fmt.Println(sqlBuffer.String())
+				sqlBuffer.WriteString(";\n")
+				sqlBuffer.WriteTo(out)
 
 				sqlBuffer.Truncate(0)
 				printComa = false
@@ -368,8 +371,8 @@ func main() {
 			if *onDuplicateKeyUpdate {
 				sqlBuffer.WriteString(onDuplicateStatement)
 			}
-			sqlBuffer.WriteString(";")
-			fmt.Println(sqlBuffer.String())
+			sqlBuffer.WriteString(";\n")
+			sqlBuffer.WriteTo(out)
 		}
 	}
 
