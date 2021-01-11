@@ -12,8 +12,6 @@ import (
 	"github.com/mkideal/cli"
 	"gopkg.in/ini.v1"
 	"io"
-	"log"
-	"math"
 	"os"
 	_ "reflect"
 	"strconv"
@@ -84,13 +82,6 @@ func ParseOptionsFile(filename string) (*MysqlOptions, error) {
 	return &options, nil
 }
 
-func failOnError(err error) {
-	if err != nil {
-		log.Fatal(err)
-		os.Exit(1)
-	}
-}
-
 func escapeString(bytes *[]byte) *[]byte {
 	newBytes := make([]byte, len(*bytes)*2)
 	i := 0
@@ -139,6 +130,7 @@ func getDb(options *MysqlOptions) (*sql.DB, error) {
 		Params: map[string]string{
 			"charset": options.Charset,
 		},
+		AllowNativePasswords: true,
 	}
 
 	db, err := sql.Open("mysql", config.FormatDSN())
@@ -154,7 +146,7 @@ func getDb(options *MysqlOptions) (*sql.DB, error) {
 	return db, nil
 }
 
-func getDbOptions(host string, user string, database string, port uint16, configFile string) (*MysqlOptions, error) {
+func getDbOptions(host string, user string, password string, database string, port uint16, configFile string) (*MysqlOptions, error) {
 	options := &MysqlOptions{Host: "localhost", Port: 3306}
 
 	myCnf := os.Getenv("HOME") + "/.my.cnf"
@@ -183,6 +175,7 @@ func getDbOptions(host string, user string, database string, port uint16, config
 	options.Extend(&MysqlOptions{
 		Host:     host,
 		User:     user,
+		Password: password,
 		Database: database,
 		Charset:  charset,
 		Port:     port,
@@ -303,7 +296,7 @@ func outSql(
 		return errors.New("Alias must be specified for sql format")
 	}
 
-	sqlBatchSize := int(math.Floor(1024 * float64(batchSize)))
+	sqlBatchSize := 1024 * batchSize
 
 	ignoreStatement := ""
 	if insertIgnore == true {
@@ -401,12 +394,12 @@ type mysqlquerydumpT struct {
 	User                 string `cli:"u,user" usage:"User for login."`
 	Database             string `cli:"D,database" usage:"Database to use."`
 	Port                 uint16 `cli:"P,port" usage:"The TCP/IP port number to use for the connection."`
-	Query                string `cli:"q,query" usage:"The query to be processed. If not specified it will be given from standart input. It is recommended to use the command with outer sql-file."`
-	Format               string `cli:"f,format" usage:"Query output format. Possible values: csv, sql, json."`
+	Query                string `cli:"*q,query" usage:"The query to be processed. If not specified it will be given from standart input. It is recommended to use the command with outer sql-file."`
+	Format               string `cli:"*f,format" usage:"Query output format. Possible values: csv, sql, json." dft:"csv"`
 	Alias                string `cli:"a,alias" usage:"MySQL table alias the result of a query will by written in. It is so pointless with the -f csv."`
 	InsertIgnore         bool   `cli:"i,insert-ignore" usage:"Produce INSERT IGNORE output for sql dump."`
 	OnDuplicateKeyUpdate bool   `cli:"U,on-duplicate-key-update" usage:"Produce statement for update duplicate rows."`
-	BatchSize            int    `cli:"s,batch-size" usage:"Batch size in kb"`
+	BatchSize            int    `cli:"s,batch-size" usage:"Batch size in kb." dft:"1024"`
 	ConfigFile           string `cli:"c,config-file"`
 }
 
@@ -438,6 +431,7 @@ func mysqlquerydump(ctx *cli.Context) error {
 	options, err := getDbOptions(
 		argv.Host,
 		argv.User,
+		"",
 		argv.Database,
 		argv.Port,
 		argv.ConfigFile,
@@ -466,13 +460,15 @@ func mysqlquerydump(ctx *cli.Context) error {
 
 	out := os.Stdout
 
+	batchSize := argv.BatchSize
+
 	switch argv.Format {
 	case "json":
 		err = outJson(out, rows)
 	case "csv":
 		err = outCsv(out, rows)
 	case "sql":
-		err = outSql(out, rows, argv.Alias, argv.InsertIgnore, argv.OnDuplicateKeyUpdate, argv.BatchSize, options)
+		err = outSql(out, rows, argv.Alias, argv.InsertIgnore, argv.OnDuplicateKeyUpdate, batchSize, options)
 	default:
 		return errors.New(fmt.Sprintf("Unknown format \"%s\"", argv.Format))
 	}
@@ -488,6 +484,7 @@ func mysqlquerydump(ctx *cli.Context) error {
 // @todo write man
 // @todo set timezone
 // @todo create table statement
+// @todo read password
 func main() {
 	cli.SetUsageStyle(cli.ManualStyle)
 
